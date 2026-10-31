@@ -1,0 +1,40 @@
+services:
+  n8n:
+    # Pinned, so an upstream release can't change behaviour underneath the workflows.
+    image: n8nio/n8n:2.45.7
+    restart: unless-stopped
+    ports:
+      # Localhost only: nothing outside this machine can reach n8n or its webhooks.
+      - "127.0.0.1:5678:5678"
+    environment:
+      # The :? form stops startup with a clear error instead of running unsafely.
+      # Encrypts stored credentials. Losing it makes them unreadable.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?Set it in n8n/.env}
+      - LENDLOOP_WEBHOOK_SECRET=${LENDLOOP_WEBHOOK_SECRET:?Set it in n8n/.env}
+      - LENDLOOP_CONVEX_SITE_URL=${LENDLOOP_CONVEX_SITE_URL:?Set it in n8n/.env}
+      - GENERIC_TIMEZONE=${TIMEZONE:-UTC}
+      - TZ=${TIMEZONE:-UTC}
+      - N8N_WEBHOOK_URL=http://localhost:5678/
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      # Lets Code nodes read the HMAC secret and use Node's crypto module. See the
+      # security tradeoff in the README.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      # Runs Code nodes in a child process, which reads the variable above. Fine
+      # for a single local instance; PRODUCTION.md covers external runners.
+      - N8N_RUNNERS_MODE=internal
+      # Sends Code node console output to the container log (docker compose logs).
+      - CODE_ENABLE_STDOUT=true
+      # Executions store payloads, including recipient emails, so keep them for
+      # 7 days only.
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+    extra_hosts:
+      # Lets the container reach Convex running on the host, on Linux as well.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows:ro
+
+volumes:
+  n8n_data:

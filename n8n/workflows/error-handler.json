@@ -1,0 +1,96 @@
+{
+  "id": "LendLoopErrors01",
+  "name": "LendLoop error handler",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "nodes": [
+    {
+      "id": "c1000000-0000-4000-8000-000000000001",
+      "name": "Error Trigger",
+      "position": [
+        0,
+        300
+      ],
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "parameters": {}
+    },
+    {
+      "id": "c1000000-0000-4000-8000-000000000002",
+      "name": "Log and sign failure",
+      "position": [
+        240,
+        300
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nfunction signed(body) {\n  const rawBody = JSON.stringify(body);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = crypto\n    .createHmac('sha256', $env.LENDLOOP_WEBHOOK_SECRET)\n    .update(`${timestamp}.${rawBody}`)\n    .digest('hex');\n  return { rawBody, timestamp, signature };\n}\n\nconst MESSAGE_MAX_LENGTH = 300;\nconst { execution, trigger, workflow } = $input.first().json;\n\n// A failed trigger has no execution, so it also has no execution id.\nconst error = execution?.error ?? trigger?.error;\nconst executionId = execution?.id ?? `trigger-${workflow.id}-${Date.now()}`;\n\n// Error text can quote request data, so remove emails before it leaves n8n.\nconst message = String(error?.message ?? 'Unknown error')\n  .replace(/[^\\s@]+@[^\\s@]+\\.[^\\s@]+/g, '[email]')\n  .slice(0, MESSAGE_MAX_LENGTH);\n\nconsole.error(`[workflow failure] ${workflow.name} (${executionId}): ${message}`);\n\nreturn [{ json: signed({\n  executionId: String(executionId),\n  eventType: workflow.name.includes('overdue') ? 'overdue_reminder' : 'request_notification',\n  workflowName: workflow.name,\n  failedNode: execution?.lastNodeExecuted,\n  message,\n}) }];"
+      }
+    },
+    {
+      "id": "c1000000-0000-4000-8000-000000000003",
+      "name": "Report to Convex",
+      "position": [
+        480,
+        300
+      ],
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LENDLOOP_CONVEX_SITE_URL }}/n8n/automation-failure",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-LendLoop-Timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "X-LendLoop-Signature",
+              "value": "={{ $json.signature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.rawBody }}",
+        "options": {
+          "timeout": 10000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log and sign failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log and sign failure": {
+      "main": [
+        [
+          {
+            "node": "Report to Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
