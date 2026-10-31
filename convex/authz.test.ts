@@ -14,9 +14,12 @@ import {
 
 beforeEach(() => {
   vi.stubEnv("ADMIN_EMAILS", ADMIN_EMAIL);
+  // Holds back scheduled notifications: this file tests authorization only.
+  vi.useFakeTimers();
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
 });
 

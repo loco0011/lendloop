@@ -1,7 +1,8 @@
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { loanStatus } from "./constants";
+import { loanStatus, type LoanStatus } from "./constants";
 import { isIsoDate, rangesOverlap, todayUtc } from "./dates";
 import { appError } from "./errors";
 import { assertTransition } from "./loanStateMachine";
@@ -54,11 +55,30 @@ export function validateLoanDates(startDate: string, endDate: string): void {
   }
 }
 
-/** Every status change goes through here, so none can skip the state machine. */
+/**
+ * Scheduled from the mutation, so it commits atomically with the status change:
+ * a rolled-back change sends nothing, and a committed one can't lose its send.
+ */
+export async function scheduleLoanNotification(
+  ctx: MutationCtx,
+  loanId: Id<"loans">,
+  status: LoanStatus,
+): Promise<void> {
+  await ctx.scheduler.runAfter(0, internal.automation.sendLoanNotification, {
+    loanId,
+    status,
+    attempt: 1,
+  });
+}
+
+/**
+ * Every status change goes through here, so none can skip the state machine or
+ * its notification.
+ */
 export async function transitionLoan(
   ctx: MutationCtx,
   loan: Doc<"loans">,
-  to: Doc<"loans">["status"],
+  to: LoanStatus,
 ): Promise<void> {
   assertTransition(loan.status, to);
   const now = Date.now();
@@ -67,6 +87,7 @@ export async function transitionLoan(
     updatedAt: now,
     ...(to === "returned" ? { returnedAt: now } : {}),
   });
+  await scheduleLoanNotification(ctx, loan._id, to);
 }
 
 /**

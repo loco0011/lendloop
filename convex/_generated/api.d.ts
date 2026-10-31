@@ -9,12 +9,16 @@
  */
 
 import type * as admin from "../admin.js";
+import type * as automation from "../automation.js";
+import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_automationKeys from "../lib/automationKeys.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_loanStateMachine from "../lib/loanStateMachine.js";
 import type * as lib_loans from "../lib/loans.js";
+import type * as lib_signing from "../lib/signing.js";
 import type * as lib_text from "../lib/text.js";
 import type * as loans from "../loans.js";
 import type * as tools from "../tools.js";
@@ -28,12 +32,16 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
+  automation: typeof automation;
+  http: typeof http;
   "lib/auth": typeof lib_auth;
+  "lib/automationKeys": typeof lib_automationKeys;
   "lib/constants": typeof lib_constants;
   "lib/dates": typeof lib_dates;
   "lib/errors": typeof lib_errors;
   "lib/loanStateMachine": typeof lib_loanStateMachine;
   "lib/loans": typeof lib_loans;
+  "lib/signing": typeof lib_signing;
   "lib/text": typeof lib_text;
   loans: typeof loans;
   tools: typeof tools;

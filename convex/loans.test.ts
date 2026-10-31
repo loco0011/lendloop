@@ -30,9 +30,12 @@ function loanStatus(t: TestConvex, loanId: Id<"loans">) {
 
 beforeEach(() => {
   vi.stubEnv("ADMIN_EMAILS", ADMIN_EMAIL);
+  // Holds back scheduled notifications, which automation.test.ts covers.
+  vi.useFakeTimers();
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
 });
 

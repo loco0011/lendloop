@@ -10,6 +10,7 @@ import { appError } from "./lib/errors";
 import {
   findApprovedOverlap,
   loanView,
+  scheduleLoanNotification,
   toLoanView,
   transitionLoan,
   validateLoanDates,
@@ -48,7 +49,7 @@ export const request = mutation({
     }
 
     const now = Date.now();
-    return ctx.db.insert("loans", {
+    const loanId = await ctx.db.insert("loans", {
       toolId,
       lenderId: tool.ownerId,
       borrowerId: user._id,
@@ -58,6 +59,8 @@ export const request = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await scheduleLoanNotification(ctx, loanId, "pending");
+    return loanId;
   },
 });
 
