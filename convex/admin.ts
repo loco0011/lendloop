@@ -1,8 +1,50 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { requireAdmin } from "./lib/auth";
+import { userRole } from "./lib/constants";
 import { appError } from "./lib/errors";
+import { loanView, toLoanView } from "./lib/loans";
 import { deactivateTool } from "./tools";
+
+const ADMIN_LIST_LIMIT = 200;
+
+export const listLoans = query({
+  args: {},
+  returns: v.array(loanView),
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const loans = await ctx.db
+      .query("loans")
+      .order("desc")
+      .take(ADMIN_LIST_LIMIT);
+    return Promise.all(loans.map((loan) => toLoanView(ctx, loan)));
+  },
+});
+
+/** Includes email because admins may need to tell two "Sam"s apart. */
+export const listUsers = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("users"),
+      firstName: v.string(),
+      email: v.string(),
+      role: userRole,
+      isTrustedLender: v.boolean(),
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const users = await ctx.db.query("users").take(ADMIN_LIST_LIMIT);
+    return users.map((user) => ({
+      _id: user._id,
+      firstName: user.firstName,
+      email: user.email,
+      role: user.role,
+      isTrustedLender: user.isTrustedLender,
+    }));
+  },
+});
 
 export const removeListing = mutation({
   args: { toolId: v.id("tools") },

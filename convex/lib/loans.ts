@@ -1,6 +1,9 @@
+import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { rangesOverlap } from "./dates";
+import { loanStatus } from "./constants";
+import { isIsoDate, rangesOverlap, todayUtc } from "./dates";
+import { appError } from "./errors";
 import { assertTransition } from "./loanStateMachine";
 
 export async function getApprovedLoans(
@@ -15,13 +18,13 @@ export async function getApprovedLoans(
     .collect();
 }
 
-export async function hasApprovedOverlap(
+export async function findApprovedOverlap(
   ctx: QueryCtx,
   toolId: Id<"tools">,
   range: { startDate: string; endDate: string },
-): Promise<boolean> {
+): Promise<Doc<"loans"> | undefined> {
   const approved = await getApprovedLoans(ctx, toolId);
-  return approved.some((loan) => rangesOverlap(loan, range));
+  return approved.find((loan) => rangesOverlap(loan, range));
 }
 
 /**
@@ -31,6 +34,24 @@ export async function hasApprovedOverlap(
  */
 export function isOnLoan(approvedLoans: Doc<"loans">[], today: string): boolean {
   return approvedLoans.some((loan) => loan.startDate <= today);
+}
+
+export function validateLoanDates(startDate: string, endDate: string): void {
+  if (!isIsoDate(startDate) || !isIsoDate(endDate)) {
+    throw appError("INVALID_INPUT", "Please choose valid dates.");
+  }
+  if (startDate > endDate) {
+    throw appError(
+      "INVALID_INPUT",
+      "The start date must be on or before the end date.",
+    );
+  }
+  if (startDate < todayUtc()) {
+    throw appError(
+      "INVALID_INPUT",
+      "The start date can't be in the past (dates use UTC).",
+    );
+  }
 }
 
 /** Every status change goes through here, so none can skip the state machine. */
@@ -46,4 +67,41 @@ export async function transitionLoan(
     updatedAt: now,
     ...(to === "returned" ? { returnedAt: now } : {}),
   });
+}
+
+/**
+ * What loan lists send to the browser. Participants see each other's first name
+ * only: email addresses stay on the server and are used just for notifications.
+ */
+export const loanView = v.object({
+  _id: v.id("loans"),
+  toolName: v.string(),
+  lenderFirstName: v.string(),
+  borrowerFirstName: v.string(),
+  startDate: v.string(),
+  endDate: v.string(),
+  status: loanStatus,
+  isOverdue: v.boolean(),
+  returnedAt: v.optional(v.number()),
+  createdAt: v.number(),
+});
+
+export async function toLoanView(ctx: QueryCtx, loan: Doc<"loans">) {
+  const [tool, lender, borrower] = await Promise.all([
+    ctx.db.get("tools", loan.toolId),
+    ctx.db.get("users", loan.lenderId),
+    ctx.db.get("users", loan.borrowerId),
+  ]);
+  return {
+    _id: loan._id,
+    toolName: tool?.name ?? "Removed tool",
+    lenderFirstName: lender?.firstName ?? "Unknown",
+    borrowerFirstName: borrower?.firstName ?? "Unknown",
+    startDate: loan.startDate,
+    endDate: loan.endDate,
+    status: loan.status,
+    isOverdue: loan.status === "approved" && loan.endDate < todayUtc(),
+    returnedAt: loan.returnedAt,
+    createdAt: loan.createdAt,
+  };
 }

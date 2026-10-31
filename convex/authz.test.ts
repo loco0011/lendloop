@@ -1,69 +1,16 @@
-import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
-import schema from "./schema";
-import { expectAppError, modules } from "./test.setup";
-
-const ADMIN_EMAIL = "admin@example.com";
-
-const validTool = {
-  name: "Cordless drill",
-  category: "power_tools",
-  condition: "good",
-  description: "18V with two batteries",
-} as const;
-
-function setup() {
-  return convexTest(schema, modules);
-}
-type TestConvex = ReturnType<typeof setup>;
-
-function identityFor(name: string, overrides: Record<string, unknown> = {}) {
-  return {
-    subject: `clerk_${name}`,
-    issuer: "https://test.clerk.accounts.dev",
-    email: `${name}@example.com`,
-    emailVerified: true,
-    givenName: name,
-    ...overrides,
-  };
-}
-
-/** Signs a user in and creates their record, as the client does on load. */
-async function signIn(t: TestConvex, name: string) {
-  const asUser = t.withIdentity(identityFor(name));
-  const userId = await asUser.mutation(api.users.ensureCurrent, {});
-  return { asUser, userId };
-}
-
-async function signInAdmin(t: TestConvex) {
-  const asAdmin = t.withIdentity(
-    identityFor("admin", { email: ADMIN_EMAIL }),
-  );
-  const userId = await asAdmin.mutation(api.users.ensureCurrent, {});
-  return { asAdmin, userId };
-}
-
-async function insertPendingLoan(
-  t: TestConvex,
-  toolId: Id<"tools">,
-  lenderId: Id<"users">,
-  borrowerId: Id<"users">,
-  dates = { startDate: "2030-01-01", endDate: "2030-01-05" },
-) {
-  return t.run((ctx) =>
-    ctx.db.insert("loans", {
-      toolId,
-      lenderId,
-      borrowerId,
-      ...dates,
-      status: "pending",
-      createdAt: 0,
-      updatedAt: 0,
-    }),
-  );
-}
+import {
+  ADMIN_EMAIL,
+  expectAppError,
+  identityFor,
+  insertLoan,
+  setup,
+  signIn,
+  signInAdmin,
+  validTool,
+  type TestConvex,
+} from "./test.setup";
 
 beforeEach(() => {
   vi.stubEnv("ADMIN_EMAILS", ADMIN_EMAIL);
@@ -194,7 +141,7 @@ describe("approving requests", () => {
     const alice = await signIn(t, "alice");
     const bob = await signIn(t, "bob");
     const toolId = await alice.asUser.mutation(api.tools.create, validTool);
-    const loanId = await insertPendingLoan(t, toolId, alice.userId, bob.userId);
+    const loanId = await insertLoan(t, toolId, alice.userId, bob.userId);
     return { alice, bob, toolId, loanId };
   }
 
@@ -246,7 +193,7 @@ describe("approving requests", () => {
   it("rejects approving dates that overlap an approved loan", async () => {
     const t = setup();
     const { alice, bob, toolId, loanId } = await toolWithPendingRequest(t);
-    const overlappingLoanId = await insertPendingLoan(
+    const overlappingLoanId = await insertLoan(
       t,
       toolId,
       alice.userId,
@@ -289,7 +236,7 @@ describe("admin functions", () => {
     const alice = await signIn(t, "alice");
     const bob = await signIn(t, "bob");
     const toolId = await alice.asUser.mutation(api.tools.create, validTool);
-    const loanId = await insertPendingLoan(t, toolId, alice.userId, bob.userId);
+    const loanId = await insertLoan(t, toolId, alice.userId, bob.userId);
 
     await asAdmin.mutation(api.admin.removeListing, { toolId });
 

@@ -76,6 +76,14 @@ export async function requireLoanParticipant(
   return { user, loan, isLender, isBorrower };
 }
 
+export async function requireLender(ctx: QueryCtx, loanId: Id<"loans">) {
+  const participant = await requireLoanParticipant(ctx, loanId);
+  if (!participant.isLender) {
+    throw appError("FORBIDDEN", "Only the tool's owner can do that.");
+  }
+  return participant;
+}
+
 /**
  * Creates the caller's user record on first sign-in and refreshes their
  * profile afterwards. An existing role is never changed here, so removing an

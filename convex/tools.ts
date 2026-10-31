@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { requireToolOwner, requireUser } from "./lib/auth";
 import {
@@ -14,7 +14,7 @@ import { appError } from "./lib/errors";
 import { getApprovedLoans, isOnLoan, transitionLoan } from "./lib/loans";
 import { cleanText } from "./lib/text";
 
-const PUBLIC_LIST_LIMIT = 100;
+const TOOL_LIST_LIMIT = 100;
 
 const toolInput = {
   name: v.string(),
@@ -33,6 +33,43 @@ function cleanToolDescription(description: string) {
   });
 }
 
+/** What signed-in users see. The owner's first name, but never their email. */
+const toolView = v.object({
+  _id: v.id("tools"),
+  name: v.string(),
+  category: toolCategory,
+  condition: toolCondition,
+  description: v.string(),
+  ownerFirstName: v.string(),
+  ownerIsTrusted: v.boolean(),
+  isMine: v.boolean(),
+  availability: v.union(v.literal("available"), v.literal("on_loan")),
+});
+
+async function toToolView(
+  ctx: QueryCtx,
+  tool: Doc<"tools">,
+  viewerId: Id<"users">,
+) {
+  const [owner, approvedLoans] = await Promise.all([
+    ctx.db.get("users", tool.ownerId),
+    getApprovedLoans(ctx, tool._id),
+  ]);
+  return {
+    _id: tool._id,
+    name: tool.name,
+    category: tool.category,
+    condition: tool.condition,
+    description: tool.description,
+    ownerFirstName: owner?.firstName ?? "Unknown",
+    ownerIsTrusted: owner?.isTrustedLender ?? false,
+    isMine: tool.ownerId === viewerId,
+    availability: isOnLoan(approvedLoans, todayUtc())
+      ? ("on_loan" as const)
+      : ("available" as const),
+  };
+}
+
 /**
  * The only function callable while signed out. The `returns` validator is the
  * privacy boundary: Convex rejects the response if any field beyond name and
@@ -47,7 +84,7 @@ export const listPublic = query({
       .query("tools")
       .withIndex("by_active", (q) => q.eq("isActive", true))
       .order("desc")
-      .take(PUBLIC_LIST_LIMIT);
+      .take(TOOL_LIST_LIMIT);
 
     const available: { name: string; category: Doc<"tools">["category"] }[] =
       [];
@@ -58,6 +95,44 @@ export const listPublic = query({
       }
     }
     return available;
+  },
+});
+
+export const list = query({
+  args: { category: v.optional(toolCategory) },
+  returns: v.array(toolView),
+  handler: async (ctx, { category }) => {
+    const user = await requireUser(ctx);
+    const tools = await (
+      category
+        ? ctx.db
+            .query("tools")
+            .withIndex("by_category", (q) =>
+              q.eq("category", category).eq("isActive", true),
+            )
+        : ctx.db
+            .query("tools")
+            .withIndex("by_active", (q) => q.eq("isActive", true))
+    )
+      .order("desc")
+      .take(TOOL_LIST_LIMIT);
+    return Promise.all(tools.map((tool) => toToolView(ctx, tool, user._id)));
+  },
+});
+
+export const listMine = query({
+  args: {},
+  returns: v.array(toolView),
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    const tools = await ctx.db
+      .query("tools")
+      .withIndex("by_owner", (q) =>
+        q.eq("ownerId", user._id).eq("isActive", true),
+      )
+      .order("desc")
+      .take(TOOL_LIST_LIMIT);
+    return Promise.all(tools.map((tool) => toToolView(ctx, tool, user._id)));
   },
 });
 
