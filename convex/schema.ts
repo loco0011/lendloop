@@ -64,6 +64,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_loan", ["loanId"])
+    .index("by_status", ["status"])
     // Convex has no unique indexes. Writers check this index first, and
     // serializable mutations make that check-then-insert safe.
     .index("by_idempotencyKey", ["idempotencyKey"]),

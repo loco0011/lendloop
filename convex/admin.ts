@@ -1,12 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin } from "./lib/auth";
-import { userRole } from "./lib/constants";
+import { automationEventType, userRole } from "./lib/constants";
 import { appError } from "./lib/errors";
 import { loanView, toLoanView } from "./lib/loans";
 import { deactivateTool } from "./tools";
 
 const ADMIN_LIST_LIMIT = 200;
+const FAILURE_LIST_LIMIT = 50;
 
 export const listLoans = query({
   args: {},
@@ -42,6 +43,36 @@ export const listUsers = query({
       email: user.email,
       role: user.role,
       isTrustedLender: user.isTrustedLender,
+    }));
+  },
+});
+
+/**
+ * Includes failures with no loan, such as a whole workflow failing. Nobody else
+ * can see those, so this is what stops them being silent.
+ */
+export const listAutomationFailures = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("automationEvents"),
+      type: automationEventType,
+      detail: v.optional(v.string()),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const failures = await ctx.db
+      .query("automationEvents")
+      .withIndex("by_status", (q) => q.eq("status", "failed"))
+      .order("desc")
+      .take(FAILURE_LIST_LIMIT);
+    return failures.map((failure) => ({
+      _id: failure._id,
+      type: failure.type,
+      detail: failure.detail,
+      createdAt: failure.createdAt,
     }));
   },
 });

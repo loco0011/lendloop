@@ -1,9 +1,12 @@
+"use client";
+
 import type { FunctionReturnType } from "convex/server";
 import type { ReactNode } from "react";
 import { Badge, Card, type BadgeTone } from "@/components/ui";
 import type { api } from "@/convex/_generated/api";
 import type { LoanStatus } from "@/convex/lib/constants";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatTimeAgo } from "@/lib/format";
+import { useNow } from "@/lib/useNow";
 
 export type LoanView = FunctionReturnType<typeof api.loans.listMine>[number];
 
@@ -14,6 +17,26 @@ const STATUS_BADGES: Record<LoanStatus, { label: string; tone: BadgeTone }> = {
   cancelled: { label: "Cancelled", tone: "neutral" },
   returned: { label: "Returned", tone: "info" },
 };
+
+function LoanActivity({ activity }: { activity: LoanView["activity"] }) {
+  const now = useNow();
+
+  if (activity.length === 0) {
+    return <p className="text-xs text-zinc-500">No automation activity yet.</p>;
+  }
+  return (
+    <ul className="flex flex-col gap-0.5 border-t border-zinc-100 pt-2 text-xs">
+      {activity.map((item) => (
+        <li
+          key={item._id}
+          className={item.isFailure ? "text-red-700" : "text-zinc-500"}
+        >
+          {item.label} {formatTimeAgo(item.createdAt, now)}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function LoanCard({
   loan,
@@ -43,6 +66,7 @@ export function LoanCard({
         </div>
       </div>
       {children}
+      <LoanActivity activity={loan.activity} />
     </Card>
   );
 }

@@ -13,6 +13,8 @@ import {
   PageTitle,
 } from "@/components/ui";
 import { api } from "@/convex/_generated/api";
+import { formatTimeAgo } from "@/lib/format";
+import { useNow } from "@/lib/useNow";
 import { useSubmit } from "@/lib/useSubmit";
 
 type AdminUser = FunctionReturnType<typeof api.admin.listUsers>[number];
@@ -52,12 +54,39 @@ function UserRow({ user }: { user: AdminUser }) {
   );
 }
 
+function AutomationFailures() {
+  const failures = useQuery(api.admin.listAutomationFailures);
+  const now = useNow();
+
+  if (failures === undefined) {
+    return <LoadingState label="Loading failures…" />;
+  }
+  if (failures.length === 0) {
+    return <EmptyState title="No automation failures" />;
+  }
+  return failures.map((failure) => (
+    <Card key={failure._id}>
+      <p className="text-sm break-words text-red-700">
+        {failure.detail ?? "No details recorded"}
+      </p>
+      <p className="text-xs text-zinc-500">
+        {failure.type === "overdue_reminder" ? "Reminder" : "Notification"} ·{" "}
+        {formatTimeAgo(failure.createdAt, now)}
+      </p>
+    </Card>
+  ));
+}
+
 function AdminPanels() {
   const users = useQuery(api.admin.listUsers);
   const loans = useQuery(api.admin.listLoans);
 
   return (
     <>
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-medium">Automation failures</h2>
+        <AutomationFailures />
+      </section>
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Lenders</h2>
         {users === undefined ? (

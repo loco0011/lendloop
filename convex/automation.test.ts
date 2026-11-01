@@ -12,9 +12,12 @@ import {
   verifySignature,
 } from "./lib/signing";
 import {
+  ADMIN_EMAIL,
+  expectAppError,
   insertLoan,
   setup,
   signIn,
+  signInAdmin,
   validTool,
   type TestConvex,
 } from "./test.setup";
@@ -478,6 +481,122 @@ describe("POST /n8n/notification-status", () => {
       body: JSON.stringify({ loanId: "x", loanStatus: "lost", status: "sent" }),
     });
     expect(response.status).toBe(400);
+  });
+});
+
+describe("activity feed", () => {
+  async function loanWithEvents(t: TestConvex) {
+    const { lender, borrower, toolId } = await parties(t);
+    const loanId = await insertLoan(t, toolId, lender.userId, borrower.userId, {
+      ...OVERDUE,
+      status: "approved",
+    });
+    return { lender, borrower, loanId };
+  }
+
+  function postNotification(
+    t: TestConvex,
+    loanId: Id<"loans">,
+    loanStatus: string,
+    status = "sent",
+    detail?: string,
+  ) {
+    return signedFetch(t, "/n8n/notification-status", {
+      body: JSON.stringify({ loanId, loanStatus, status, detail }),
+    });
+  }
+
+  it("names who was notified, newest first", async () => {
+    const t = setup();
+    const { lender, loanId } = await loanWithEvents(t);
+    await postNotification(t, loanId, "pending");
+    vi.advanceTimersByTime(1000);
+    await postNotification(t, loanId, "approved");
+    vi.advanceTimersByTime(1000);
+    await signedFetch(t, "/n8n/reminder-status", {
+      body: JSON.stringify({ loanId, status: "sent" }),
+    });
+
+    const [loan] = await lender.asUser.query(api.loans.listIncoming, {});
+
+    expect(loan.activity.map((item) => item.label)).toEqual([
+      "Reminder sent",
+      "Borrower notified",
+      "Lender notified",
+    ]);
+  });
+
+  it("shows participants that a send failed, but not the internal detail", async () => {
+    const t = setup();
+    const { borrower, loanId } = await loanWithEvents(t);
+    await postNotification(
+      t,
+      loanId,
+      "approved",
+      "failed",
+      "error sending request for url (http://internal-host)",
+    );
+
+    const [loan] = await borrower.asUser.query(api.loans.listMine, {});
+
+    expect(loan.activity).toHaveLength(1);
+    expect(loan.activity[0]).toMatchObject({
+      label: "Borrower notification failed",
+      isFailure: true,
+    });
+    expect(JSON.stringify(loan)).not.toContain("internal-host");
+  });
+
+  it("keeps only the most recent entries on each loan", async () => {
+    const t = setup();
+    const { lender, loanId } = await loanWithEvents(t);
+    for (const status of ["pending", "approved", "returned", "declined", "cancelled"]) {
+      await postNotification(t, loanId, status);
+      await postNotification(t, loanId, status, "failed");
+    }
+
+    const [loan] = await lender.asUser.query(api.loans.listIncoming, {});
+
+    expect(loan.activity).toHaveLength(5);
+  });
+
+  it("does not attach another loan's events", async () => {
+    const t = setup();
+    const { lender, borrower, toolId } = await parties(t);
+    const loanId = await insertLoan(t, toolId, lender.userId, borrower.userId);
+    await insertLoan(t, toolId, lender.userId, borrower.userId, {
+      startDate: "2031-01-01",
+      endDate: "2031-01-02",
+    });
+    await postNotification(t, loanId, "pending");
+
+    const loans = await lender.asUser.query(api.loans.listIncoming, {});
+
+    expect(loans.map((loan) => loan.activity.length).sort()).toEqual([0, 1]);
+  });
+
+  it("shows admins failures with no loan, and their detail", async () => {
+    vi.stubEnv("ADMIN_EMAILS", ADMIN_EMAIL);
+    const t = setup();
+    const { asAdmin } = await signInAdmin(t);
+    const { asUser } = await signIn(t, "alice");
+    await signedFetch(t, "/n8n/automation-failure", {
+      body: JSON.stringify({
+        executionId: "1",
+        eventType: "overdue_reminder",
+        workflowName: "LendLoop overdue reminders",
+        message: "boom",
+      }),
+    });
+
+    const failures = await asAdmin.query(api.admin.listAutomationFailures, {});
+    expect(failures).toHaveLength(1);
+    expect(failures[0].detail).toContain("boom");
+
+    await expectAppError(
+      asUser.query(api.admin.listAutomationFailures, {}),
+      "FORBIDDEN",
+    );
   });
 });
 

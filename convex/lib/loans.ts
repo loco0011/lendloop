@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { activityItem, getLoanActivity } from "./activity";
 import { loanStatus, type LoanStatus } from "./constants";
 import { isIsoDate, rangesOverlap, todayUtc } from "./dates";
 import { appError } from "./errors";
@@ -105,13 +106,15 @@ export const loanView = v.object({
   isOverdue: v.boolean(),
   returnedAt: v.optional(v.number()),
   createdAt: v.number(),
+  activity: v.array(activityItem),
 });
 
 export async function toLoanView(ctx: QueryCtx, loan: Doc<"loans">) {
-  const [tool, lender, borrower] = await Promise.all([
+  const [tool, lender, borrower, activity] = await Promise.all([
     ctx.db.get("tools", loan.toolId),
     ctx.db.get("users", loan.lenderId),
     ctx.db.get("users", loan.borrowerId),
+    getLoanActivity(ctx, loan._id),
   ]);
   return {
     _id: loan._id,
@@ -124,5 +127,6 @@ export async function toLoanView(ctx: QueryCtx, loan: Doc<"loans">) {
     isOverdue: loan.status === "approved" && loan.endDate < todayUtc(),
     returnedAt: loan.returnedAt,
     createdAt: loan.createdAt,
+    activity,
   };
 }

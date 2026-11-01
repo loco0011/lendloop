@@ -10,11 +10,11 @@ import {
   notificationKey,
   reminderKey,
 } from "./lib/automationKeys";
+import { recipientRole } from "./lib/activity";
 import {
   automationEventStatus,
   automationEventType,
   loanStatus,
-  type LoanStatus,
 } from "./lib/constants";
 import { todayUtc } from "./lib/dates";
 import {
@@ -34,11 +34,6 @@ const DETAIL_MAX_LENGTH = 500;
 /** 15s after the first failure, then 30s. */
 export function retryDelayMs(attempt: number): number {
   return RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
-}
-
-/** The person who needs to act on, or learn about, each status. */
-function recipientRole(status: LoanStatus): "lender" | "borrower" {
-  return status === "pending" || status === "cancelled" ? "lender" : "borrower";
 }
 
 const notificationPayload = v.object({
@@ -66,7 +61,7 @@ export const getNotificationPayload = internalQuery({
       ctx.db.get("tools", loan.toolId),
       ctx.db.get(
         "users",
-        recipientRole(status) === "lender" ? loan.lenderId : loan.borrowerId,
+        recipientRole(status) === "Lender" ? loan.lenderId : loan.borrowerId,
       ),
     ]);
     if (!tool || !recipient) return null;
